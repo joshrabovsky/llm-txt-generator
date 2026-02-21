@@ -14,7 +14,7 @@
 - [x] `app/api/generate/route.ts` — streaming POST endpoint
 
 ## Frontend
-- [ ] `app/page.tsx` — URL input form + live progress + output display
+- [x] `app/page.tsx` — URL input form + live progress + output display
 
 ## Docs
 - [x] `ARCHITECTURE.md`
@@ -22,6 +22,6 @@
 - [ ] `README.md` — setup and deployment instructions
 
 ## Deployment
-- [ ] Initialize GitHub repo
-- [ ] Deploy to Vercel (get live URL)
+- [x] Initialize GitHub repo (https://github.com/joshrabovsky/llm-txt-generator)
+- [x] Deploy to Vercel (https://llms-txt-generator-hkea52aix-joshrabovskys-projects.vercel.app)
 - [ ] Add collaborators to GitHub repo (chazzhou, allapk19, sherman-grewal, joshuaprunty, nuarmstrong, rahibk, joeydotdev, kirk-xuhj, bgaleotti, fedeya)
