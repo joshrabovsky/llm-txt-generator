@@ -14,6 +14,6 @@ Steps:
 4. `git add -A && git status` — show what's being committed
 5. `git diff --cached --stat` — summarize changes
 6. `git commit -m "deploy: <auto-summary of changes>"` — commit with a descriptive message (only if there are staged changes)
-7. `git push` — push to GitHub, which triggers Vercel auto-deploy
+7. `git push` — push to GitHub, Vercel auto-deploys within ~30 seconds
 
-Report the GitHub push confirmation and remind the user that Vercel will auto-deploy within ~30 seconds.
+Report the git push confirmation on success.
