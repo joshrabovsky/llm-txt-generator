@@ -5,52 +5,85 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CrawlProgressEvent, GenerateResult } from "@/lib/types";
+import { CrawlProgressEvent, CrawlResult, GenerateResult, EventType } from "@/lib/types";
 import SyntaxHighlighter from "react-syntax-highlighter";
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 type AppState = "idle" | "crawling" | "done" | "error";
+type TabId = "deterministic" | "ai" | "existing";
 
 type ProgressEntry =
   | { kind: "progress"; message: string; pagesFound: number }
   | { kind: "skip"; url: string; reason: string };
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function Home() {
   const [url, setUrl] = useState("");
-  const [state, setState] = useState<AppState>("idle");
+  const [activeTab, setActiveTab] = useState<TabId>("deterministic");
+
+  // Deterministic state
+  const [appState, setAppState] = useState<AppState>("idle");
   const [progress, setProgress] = useState<ProgressEntry[]>([]);
-  const [result, setResult] = useState<GenerateResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [deterministicResult, setDeterministicResult] = useState<GenerateResult | null>(null);
+  const [crawlError, setCrawlError] = useState<string | null>(null);
+
+  // AI state
+  const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [aiTokens, setAiTokens] = useState("");
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  // Existing llms.txt state
+  const [existingStatus, setExistingStatus] = useState<"idle" | "loading" | "found" | "not-found">("idle");
+  const [existingLlmsTxt, setExistingLlmsTxt] = useState<string | null>(null);
+
+  // Copy state per tab
+  const [copiedTab, setCopiedTab] = useState<TabId | null>(null);
+
   const progressEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
     progressEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // ─── Existing llms.txt check ──────────────────────────────────────────────
 
-    const trimmed = url.trim();
-    if (!trimmed) return;
+  const checkExistingLlmsTxt = async (targetUrl: string) => {
+    setExistingStatus("loading");
+    try {
+      const base = new URL(targetUrl);
+      const llmsUrl = `${base.protocol}//${base.host}/llms.txt`;
+      const response = await fetch(llmsUrl);
+      if (response.ok) {
+        const text = await response.text();
+        setExistingLlmsTxt(text);
+        setExistingStatus("found");
+      } else {
+        setExistingStatus("not-found");
+      }
+    } catch {
+      setExistingStatus("not-found");
+    }
+  };
 
-    // Reset state
-    setState("crawling");
-    setProgress([]);
-    setResult(null);
-    setError(null);
-    setCopied(false);
+  // ─── AI generation ────────────────────────────────────────────────────────
+
+  const runAiGeneration = async (crawlResult: CrawlResult) => {
+    setAiStatus("loading");
+    setAiTokens("");
+    setAiError(null);
+    setActiveTab("ai");
 
     try {
-      const response = await fetch("/api/generate", {
+      const response = await fetch("/api/generate-ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: trimmed }),
+        body: JSON.stringify(crawlResult),
       });
 
-      if (!response.ok || !response.body) {
-        throw new Error("Request failed");
-      }
+      if (!response.ok || !response.body) throw new Error("AI request failed");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -61,53 +94,133 @@ export default function Home() {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-
-        // NDJSON: split on newlines and parse each complete line
         const lines = buffer.split("\n");
-        buffer = lines.pop() ?? ""; // last element may be incomplete
+        buffer = lines.pop() ?? "";
 
         for (const line of lines) {
           if (!line.trim()) continue;
-
           const event: CrawlProgressEvent = JSON.parse(line);
 
-          if (event.type === "progress") {
+          if (event.type === EventType.AiToken) {
+            setAiTokens((prev) => prev + event.token);
+          } else if (event.type === EventType.Done) {
+            setAiStatus("done");
+          } else if (event.type === EventType.Error) {
+            setAiError(event.message);
+            setAiStatus("error");
+          }
+        }
+      }
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : "AI generation failed");
+      setAiStatus("error");
+    }
+  };
+
+  // ─── Deterministic crawl ──────────────────────────────────────────────────
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = url.trim();
+    if (!trimmed) return;
+
+    // Reset all state
+    setAppState("crawling");
+    setProgress([]);
+    setDeterministicResult(null);
+    setCrawlError(null);
+    setAiStatus("idle");
+    setAiTokens("");
+    setAiError(null);
+    setExistingStatus("idle");
+    setExistingLlmsTxt(null);
+    setCopiedTab(null);
+    setActiveTab("deterministic");
+
+    // Fire existing llms.txt check immediately — no need to await
+    checkExistingLlmsTxt(trimmed);
+
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmed }),
+      });
+
+      if (!response.ok || !response.body) throw new Error("Request failed");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let crawlResult: CrawlResult | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event: CrawlProgressEvent = JSON.parse(line);
+
+          if (event.type === EventType.Progress) {
             setProgress((prev) => {
               const updated = [...prev, { kind: "progress" as const, message: event.message, pagesFound: event.pagesFound }];
               setTimeout(scrollToBottom, 50);
               return updated;
             });
-          } else if (event.type === "skip") {
+          } else if (event.type === EventType.Skip) {
             setProgress((prev) => {
               const updated = [...prev, { kind: "skip" as const, url: event.url, reason: event.reason }];
               setTimeout(scrollToBottom, 50);
               return updated;
             });
-          } else if (event.type === "done") {
-            setResult(event.result);
-            setState("done");
-          } else if (event.type === "error") {
-            setError(event.message);
-            setState("error");
+          } else if (event.type === EventType.Done) {
+            setDeterministicResult(event.result);
+            setAppState("done");
+            crawlResult = event.result;
+          } else if (event.type === EventType.Error) {
+            setCrawlError(event.message);
+            setAppState("error");
           }
         }
       }
+
+      // Trigger AI generation after crawl completes
+      if (crawlResult) {
+        await runAiGeneration(crawlResult);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-      setState("error");
+      setCrawlError(err instanceof Error ? err.message : "Something went wrong");
+      setAppState("error");
     }
   };
 
-  const handleCopy = async () => {
-    if (!result?.llmsTxt) return;
-    await navigator.clipboard.writeText(result.llmsTxt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  // ─── Clipboard ────────────────────────────────────────────────────────────
+
+  const handleCopy = async (tab: TabId) => {
+    const text =
+      tab === "deterministic" ? deterministicResult?.llmsTxt :
+      tab === "ai" ? aiTokens :
+      existingLlmsTxt;
+
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    setCopiedTab(tab);
+    setTimeout(() => setCopiedTab(null), 2000);
   };
 
-  const handleDownload = () => {
-    if (!result?.llmsTxt) return;
-    const blob = new Blob([result.llmsTxt], { type: "text/plain" });
+  const handleDownload = (tab: TabId) => {
+    const text =
+      tab === "deterministic" ? deterministicResult?.llmsTxt :
+      tab === "ai" ? aiTokens :
+      existingLlmsTxt;
+
+    if (!text) return;
+    const blob = new Blob([text], { type: "text/plain" });
     const objectUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = objectUrl;
@@ -117,12 +230,48 @@ export default function Home() {
   };
 
   const handleReset = () => {
-    setState("idle");
+    setAppState("idle");
     setProgress([]);
-    setResult(null);
-    setError(null);
+    setDeterministicResult(null);
+    setCrawlError(null);
+    setAiStatus("idle");
+    setAiTokens("");
+    setAiError(null);
+    setExistingStatus("idle");
+    setExistingLlmsTxt(null);
     setUrl("");
+    setActiveTab("deterministic");
   };
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  const isActive = appState !== "idle";
+
+  const tabs: { id: TabId; label: string }[] = [
+    { id: "deterministic", label: "Deterministic" },
+    { id: "ai", label: "AI-Enhanced" },
+    { id: "existing", label: "Existing" },
+  ];
+
+  const getTabBadge = (tab: TabId) => {
+    if (tab === "deterministic") {
+      if (appState === "crawling") return <Badge variant="secondary" className="animate-pulse text-xs">Live</Badge>;
+      if (appState === "done") return <Badge variant="default" className="text-xs">{[...progress].reverse().find(e => e.kind === "progress")?.pagesFound ?? 0} pages</Badge>;
+    }
+    if (tab === "ai") {
+      if (aiStatus === "loading") return <Badge variant="secondary" className="animate-pulse text-xs">Generating</Badge>;
+      if (aiStatus === "done") return <Badge variant="default" className="text-xs">Done</Badge>;
+      if (aiStatus === "error") return <Badge variant="destructive" className="text-xs">Error</Badge>;
+    }
+    if (tab === "existing") {
+      if (existingStatus === "loading") return <Badge variant="secondary" className="animate-pulse text-xs">Checking</Badge>;
+      if (existingStatus === "found") return <Badge variant="default" className="text-xs">Found</Badge>;
+      if (existingStatus === "not-found") return <Badge variant="outline" className="text-xs">None</Badge>;
+    }
+    return null;
+  };
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <main className="min-h-screen bg-background py-16 px-4">
@@ -135,12 +284,8 @@ export default function Home() {
             Enter a website URL to generate an{" "}
             <code className="text-sm font-mono bg-muted px-1 py-0.5 rounded">llms.txt</code>{" "}
             file conforming to the{" "}
-            <a
-              href="https://llmstxt.org"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-4 hover:text-foreground transition-colors"
-            >
+            <a href="https://llmstxt.org" target="_blank" rel="noopener noreferrer"
+              className="underline underline-offset-4 hover:text-foreground transition-colors">
               llmstxt.org
             </a>{" "}
             spec.
@@ -154,101 +299,195 @@ export default function Home() {
             placeholder="https://example.com"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            disabled={state === "crawling"}
+            disabled={appState === "crawling" || aiStatus === "loading"}
             className="flex-1"
           />
-          <Button type="submit" disabled={state === "crawling" || !url.trim()}>
-            {state === "crawling" ? "Crawling..." : "Generate"}
+          <Button type="submit" disabled={appState === "crawling" || aiStatus === "loading" || !url.trim()}>
+            {appState === "crawling" ? "Crawling..." : aiStatus === "loading" ? "Generating..." : "Generate"}
           </Button>
+          {isActive && (
+            <Button variant="ghost" onClick={handleReset} type="button">
+              Reset
+            </Button>
+          )}
         </form>
 
-        {/* Progress */}
-        {progress.length > 0 && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                Crawl Progress
-                {state === "crawling" && (
-                  <Badge variant="secondary" className="animate-pulse">
-                    Live
-                  </Badge>
-                )}
-                {state === "done" && (
-                  <Badge variant="default">
-                    {[...progress].reverse().find((e) => e.kind === "progress")?.pagesFound ?? 0} pages
-                  </Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-40 overflow-y-auto space-y-1 font-mono text-xs text-muted-foreground">
-                {progress.map((entry, i) =>
-                  entry.kind === "skip" ? (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-yellow-500 shrink-0">⚠</span>
-                      <span className="text-yellow-600 dark:text-yellow-400 truncate">
-                        Skipped: {entry.url} — {entry.reason}
-                      </span>
-                    </div>
-                  ) : (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-green-500 shrink-0">✓</span>
-                      <span>{entry.message}</span>
-                    </div>
-                  )
-                )}
-                <div ref={progressEndRef} />
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Error */}
-        {state === "error" && error && (
+        {/* Crawl error */}
+        {appState === "error" && crawlError && (
           <Card className="border-destructive">
             <CardContent className="pt-6">
-              <p className="text-sm text-destructive">{error}</p>
-              <Button variant="outline" size="sm" className="mt-3" onClick={handleReset}>
-                Try again
-              </Button>
+              <p className="text-sm text-destructive">{crawlError}</p>
             </CardContent>
           </Card>
         )}
 
-        {/* Result */}
-        {state === "done" && result && (
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium">Generated llms.txt</CardTitle>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={handleCopy}>
-                    {copied ? "Copied!" : "Copy"}
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleDownload}>
-                    Download
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={handleReset}>
-                    Reset
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <SyntaxHighlighter
-                language="markdown"
-                style={atomOneDark}
-                customStyle={{
-                  margin: 0,
-                  borderRadius: "0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px)",
-                  fontSize: "0.75rem",
-                  maxHeight: "500px",
-                }}
-              >
-                {result.llmsTxt}
-              </SyntaxHighlighter>
-            </CardContent>
-          </Card>
+        {/* Tabs */}
+        {isActive && (
+          <div className="space-y-0">
+            {/* Tab bar */}
+            <div className="flex border-b">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab.id
+                      ? "border-foreground text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {tab.label}
+                  {getTabBadge(tab.id)}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <Card className="rounded-tl-none border-t-0">
+
+              {/* ── Deterministic tab ── */}
+              {activeTab === "deterministic" && (
+                <>
+                  {/* Progress log */}
+                  {progress.length > 0 && (
+                    <CardContent className="pt-4 pb-0">
+                      <div className="h-40 overflow-y-auto space-y-1 font-mono text-xs text-muted-foreground">
+                        {progress.map((entry, i) =>
+                          entry.kind === "skip" ? (
+                            <div key={i} className="flex gap-2">
+                              <span className="text-yellow-500 shrink-0">⚠</span>
+                              <span className="text-yellow-600 dark:text-yellow-400 truncate">
+                                Skipped: {entry.url} — {entry.reason}
+                              </span>
+                            </div>
+                          ) : (
+                            <div key={i} className="flex gap-2">
+                              <span className="text-green-500 shrink-0">✓</span>
+                              <span>{entry.message}</span>
+                            </div>
+                          )
+                        )}
+                        <div ref={progressEndRef} />
+                      </div>
+                    </CardContent>
+                  )}
+
+                  {/* Result */}
+                  {deterministicResult && (
+                    <>
+                      <CardHeader className="pb-2 pt-4">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-sm font-medium">Generated llms.txt</CardTitle>
+                          <div className="flex gap-2">
+                            <Button variant="outline" size="sm" onClick={() => handleCopy("deterministic")}>
+                              {copiedTab === "deterministic" ? "Copied!" : "Copy"}
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => handleDownload("deterministic")}>
+                              Download
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        <SyntaxHighlighter language="markdown" style={atomOneDark}
+                          customStyle={{ margin: 0, borderRadius: "0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px)", fontSize: "0.75rem", maxHeight: "400px" }}>
+                          {deterministicResult.llmsTxt}
+                        </SyntaxHighlighter>
+                      </CardContent>
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* ── AI-Enhanced tab ── */}
+              {activeTab === "ai" && (
+                <>
+                  {aiStatus === "idle" && (
+                    <CardContent className="pt-6">
+                      <p className="text-sm text-muted-foreground">AI generation will start after the crawl completes.</p>
+                    </CardContent>
+                  )}
+
+                  {(aiStatus === "loading" || aiStatus === "done") && aiTokens && (
+                    <>
+                      <CardHeader className="pb-2 pt-4">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-sm font-medium">AI-Enhanced llms.txt</CardTitle>
+                          {aiStatus === "done" && (
+                            <div className="flex gap-2">
+                              <Button variant="outline" size="sm" onClick={() => handleCopy("ai")}>
+                                {copiedTab === "ai" ? "Copied!" : "Copy"}
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => handleDownload("ai")}>
+                                Download
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        <SyntaxHighlighter language="markdown" style={atomOneDark}
+                          customStyle={{ margin: 0, borderRadius: "0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px)", fontSize: "0.75rem", maxHeight: "400px" }}>
+                          {aiTokens}
+                        </SyntaxHighlighter>
+                      </CardContent>
+                    </>
+                  )}
+
+                  {aiStatus === "error" && (
+                    <CardContent className="pt-6">
+                      <p className="text-sm text-destructive">{aiError}</p>
+                    </CardContent>
+                  )}
+                </>
+              )}
+
+              {/* ── Existing tab ── */}
+              {activeTab === "existing" && (
+                <>
+                  {existingStatus === "loading" && (
+                    <CardContent className="pt-6">
+                      <p className="text-sm text-muted-foreground animate-pulse">Checking for existing llms.txt...</p>
+                    </CardContent>
+                  )}
+
+                  {existingStatus === "not-found" && (
+                    <CardContent className="pt-6">
+                      <p className="text-sm text-muted-foreground">
+                        No <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">llms.txt</code> found at this domain.
+                        This site has not yet adopted the standard.
+                      </p>
+                    </CardContent>
+                  )}
+
+                  {existingStatus === "found" && existingLlmsTxt && (
+                    <>
+                      <CardHeader className="pb-2 pt-4">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-sm font-medium">Existing llms.txt</CardTitle>
+                          <div className="flex gap-2">
+                            <Button variant="outline" size="sm" onClick={() => handleCopy("existing")}>
+                              {copiedTab === "existing" ? "Copied!" : "Copy"}
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => handleDownload("existing")}>
+                              Download
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        <SyntaxHighlighter language="markdown" style={atomOneDark}
+                          customStyle={{ margin: 0, borderRadius: "0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px)", fontSize: "0.75rem", maxHeight: "400px" }}>
+                          {existingLlmsTxt}
+                        </SyntaxHighlighter>
+                      </CardContent>
+                    </>
+                  )}
+                </>
+              )}
+
+            </Card>
+          </div>
         )}
 
       </div>
