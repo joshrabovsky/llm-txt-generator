@@ -1,6 +1,6 @@
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-export type FetchResult =
+type FetchResult =
   | { success: true; html: string }
   | { success: false; reason: string };
 
