@@ -4,6 +4,8 @@ A web application that automatically generates an `llms.txt` file for any websit
 
 **Live demo:** https://llms-txt-generator-two.vercel.app
 
+**Demo video:** [Watch on Google Drive](http://drive.google.com/file/d/1AJZeEuLSyy3bhuekVZm6092wdnRcpLSh/view)
+
 For architecture, data flow, and design decisions see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---
