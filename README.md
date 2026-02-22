@@ -38,7 +38,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 2. Click **Generate** — the crawler will start immediately
 3. Watch the **Deterministic** tab for live crawl progress
 4. Once complete, three tabs are available:
-   - **Deterministic** — spec-compliant `llms.txt` generated directly from crawled metadata
+   - **Standard** — spec-compliant `llms.txt` generated directly from crawled metadata
    - **AI Optimized** — Gemini-enhanced version optimized for AI discoverability
    - **Existing** — the site's current `llms.txt` if one exists, for reference
 5. Use **Copy** or **Download** on any tab to save the output

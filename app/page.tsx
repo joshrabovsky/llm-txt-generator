@@ -284,7 +284,7 @@ export default function Home() {
   const isActive = appState !== "idle";
 
   const tabs: { id: TabId; label: string }[] = [
-    { id: "deterministic", label: "Deterministic" },
+    { id: "deterministic", label: "Standard" },
     { id: "ai", label: "AI Optimized" },
     { id: "existing", label: "Existing" },
   ];
@@ -413,7 +413,7 @@ export default function Home() {
                     <>
                       <CardHeader className="pb-2 pt-4">
                         <div className="flex items-center justify-between">
-                          <CardTitle className="text-sm font-medium">Generated llms.txt</CardTitle>
+                          <CardTitle className="text-sm font-medium">Standard llms.txt</CardTitle>
                           <div className="flex gap-2">
                             <Button variant="outline" size="sm" onClick={() => handleCopy("deterministic")}>
                               {copiedTab === "deterministic" ? "Copied!" : "Copy"}
