@@ -36,7 +36,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 1. Enter any website URL into the input field (e.g. `anthropic.com`)
 2. Click **Generate** — the crawler will start immediately
-3. Watch the **Deterministic** tab for live crawl progress
+3. Watch the **Standard** tab for live crawl progress
 4. Once complete, three tabs are available:
    - **Standard** — spec-compliant `llms.txt` generated directly from crawled metadata
    - **AI Optimized** — Gemini-enhanced version optimized for AI discoverability
@@ -70,14 +70,15 @@ Free tier limits reset daily. If a model returns `limit: 0`, create a fresh Goog
 
 ## Deployment
 
-This project is deployed on Vercel. Any push to `main` triggers an automatic redeployment.
+This project is deployed on Vercel. Merging a PR to `main` triggers an automatic redeployment.
 
 **To deploy your own instance:**
 
 1. Fork this repo
 2. Go to [vercel.com](https://vercel.com) and create a new project
 3. Import your forked repo — Vercel auto-detects Next.js, no configuration needed
-4. Click Deploy
+4. Add your `GEMINI_API_KEY` under **Settings → Environment Variables**
+5. Click Deploy
 
 Alternatively, deploy via the Vercel CLI:
 
