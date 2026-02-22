@@ -2,7 +2,7 @@
 
 A web application that automatically generates an `llms.txt` file for any website.
 
-**Live demo:** https://llms-txt-generator-hkea52aix-joshrabovskys-projects.vercel.app
+**Live demo:** https://llms-txt-generator-two.vercel.app
 
 For architecture, data flow, and design decisions see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
