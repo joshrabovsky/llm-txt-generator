@@ -35,8 +35,8 @@ Return only the llms.txt content. No explanation, no markdown fences, no preambl
 export async function POST(request: NextRequest) {
   const body: CrawlResult = await request.json();
 
-  if (!body.pages || !body.baseUrl) {
-    return new Response(JSON.stringify({ error: "Invalid crawl result" }), {
+  if (!body.pages || !body.baseUrl || body.pages.length === 0) {
+    return new Response(JSON.stringify({ error: "No pages to generate from" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
     });

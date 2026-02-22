@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,7 +42,20 @@ export default function Home() {
   // Copy state per tab
   const [copiedTab, setCopiedTab] = useState<TabId | null>(null);
 
+  // Toast notification — message and visibility are decoupled so text
+  // remains rendered for the full duration of the fade-out
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const progressEndRef = useRef<HTMLDivElement>(null);
+
+  const showToast = useCallback((message: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToastMessage(message);
+    setToastVisible(true);
+    toastTimer.current = setTimeout(() => setToastVisible(false), 3000);
+  }, []);
 
   const scrollToBottom = () => {
     progressEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -53,12 +66,10 @@ export default function Home() {
   const checkExistingLlmsTxt = async (targetUrl: string) => {
     setExistingStatus("loading");
     try {
-      const base = new URL(targetUrl);
-      const llmsUrl = `${base.protocol}//${base.host}/llms.txt`;
-      const response = await fetch(llmsUrl);
-      if (response.ok) {
-        const text = await response.text();
-        setExistingLlmsTxt(text);
+      const response = await fetch(`/api/v1/llms-txt/existing?url=${encodeURIComponent(targetUrl)}`);
+      const { llmsTxt } = await response.json();
+      if (llmsTxt) {
+        setExistingLlmsTxt(llmsTxt);
         setExistingStatus("found");
       } else {
         setExistingStatus("not-found");
@@ -74,10 +85,9 @@ export default function Home() {
     setAiStatus("loading");
     setAiTokens("");
     setAiError(null);
-    setActiveTab("ai");
 
     try {
-      const response = await fetch("/api/generate-ai", {
+      const response = await fetch("/api/v1/llms-txt/generate-aeo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(crawlResult),
@@ -121,8 +131,34 @@ export default function Home() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = url.trim();
+    let trimmed = url.trim();
     if (!trimmed) return;
+
+    if (trimmed.includes("://")) {
+      // Protocol explicitly provided — validate it's http/https
+      if (!/^https?:\/\//i.test(trimmed)) {
+        showToast("Only http:// and https:// URLs are supported.");
+        return;
+      }
+    } else {
+      // No protocol — assume https
+      trimmed = `https://${trimmed}`;
+    }
+
+    // Validate the full URL before hitting the API
+    try {
+      const parsed = new URL(trimmed);
+      const hostname = parsed.hostname;
+      const isLocalhost = hostname === "localhost";
+      const hasValidDomain = hostname.includes(".") && hostname.split(".").every(part => part.length > 0);
+      if (!isLocalhost && !hasValidDomain) {
+        showToast("Please enter a valid URL.");
+        return;
+      }
+    } catch {
+      showToast("Please enter a valid URL.");
+      return;
+    }
 
     // Reset all state
     setAppState("crawling");
@@ -141,7 +177,7 @@ export default function Home() {
     checkExistingLlmsTxt(trimmed);
 
     try {
-      const response = await fetch("/api/generate", {
+      const response = await fetch("/api/v1/llms-txt/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: trimmed }),
@@ -249,7 +285,7 @@ export default function Home() {
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "deterministic", label: "Deterministic" },
-    { id: "ai", label: "AI-Enhanced" },
+    { id: "ai", label: "AI Optimized" },
     { id: "existing", label: "Existing" },
   ];
 
@@ -295,8 +331,8 @@ export default function Home() {
         {/* Input form */}
         <form onSubmit={handleSubmit} className="flex gap-2">
           <Input
-            type="url"
-            placeholder="https://example.com"
+            type="text"
+            placeholder="example.com"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             disabled={appState === "crawling" || aiStatus === "loading"}
@@ -315,7 +351,7 @@ export default function Home() {
         {/* Crawl error */}
         {appState === "error" && crawlError && (
           <Card className="border-destructive">
-            <CardContent className="pt-6">
+            <CardContent className="py-2">
               <p className="text-sm text-destructive">{crawlError}</p>
             </CardContent>
           </Card>
@@ -412,7 +448,7 @@ export default function Home() {
                     <>
                       <CardHeader className="pb-2 pt-4">
                         <div className="flex items-center justify-between">
-                          <CardTitle className="text-sm font-medium">AI-Enhanced llms.txt</CardTitle>
+                          <CardTitle className="text-sm font-medium">AI Optimized llms.txt</CardTitle>
                           {aiStatus === "done" && (
                             <div className="flex gap-2">
                               <Button variant="outline" size="sm" onClick={() => handleCopy("ai")}>
@@ -491,6 +527,17 @@ export default function Home() {
         )}
 
       </div>
+
+      {/* Toast notification */}
+      <div className={`fixed top-6 left-1/2 -translate-x-1/2 transition-opacity duration-500 ${
+        toastVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+      }`}>
+        <div className="bg-red-600 text-white text-sm px-4 py-2 rounded-md shadow-lg flex items-center gap-2">
+          <span>⚠</span>
+          {toastMessage}
+        </div>
+      </div>
+
     </main>
   );
 }

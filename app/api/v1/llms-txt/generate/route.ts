@@ -33,6 +33,12 @@ export async function POST(request: NextRequest) {
 
       try {
         const result = await crawlWebsite(url, send);
+
+        if (result.pages.length === 0) {
+          send({ type: "error", message: "No pages could be crawled from this site. It may be blocking automated requests or require JavaScript to render." });
+          return;
+        }
+
         const llmsTxt = generateLlmsTxt(result);
         send({ type: "done", result: { ...result, llmsTxt } });
       } catch (err) {
