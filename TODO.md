@@ -28,14 +28,15 @@
 - [x] AI Optimized tab (Gemini AEO generation)
 - [x] Existing llms.txt tab
 - [x] Sitemap index support (fetch child sitemaps, 5 pages per child)
-- [ ] Card title inside AI Optimized tab still says "AI-Enhanced llms.txt" — update to "AI Optimized llms.txt"
+- [x] Card title updated to "AI Optimized llms.txt"
 
 ## Testing
-- [ ] Choose test framework (Vitest vs Jest)
-- [ ] Unit tests for lib/crawler/fetcher.ts
-- [ ] Unit tests for lib/crawler/parser.ts
+- [x] Choose test framework (Vitest)
+- [x] Unit tests for lib/crawler/fetcher.ts (5 tests)
+- [x] Unit tests for lib/crawler/parser.ts (12 tests)
+- [x] Unit tests for lib/generator/index.ts (8 tests)
+- [x] GitHub Actions CI workflow (type-check + lint + test on every push)
 - [ ] Unit tests for lib/crawler/sitemap.ts
-- [ ] Unit tests for lib/generator/index.ts
 - [ ] Integration test for POST /api/v1/llms-txt/generate
 
 ## Docs
