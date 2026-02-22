@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { crawlWebsite } from "@/lib/crawler";
 import { generateLlmsTxt } from "@/lib/generator";
-import { CrawlProgressEvent, GenerateResult } from "@/lib/types";
+import { CrawlProgressEvent } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const { url } = await request.json();

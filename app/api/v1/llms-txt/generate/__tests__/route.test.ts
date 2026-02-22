@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
+import { NextRequest } from "next/server";
 import { POST } from "../route";
+import type { CrawlProgressEvent } from "@/lib/types";
 
 // Mock crawlWebsite so no real network requests are made
 vi.mock("@/lib/crawler", () => ({
-  crawlWebsite: vi.fn(async (_url: string, onProgress: Function) => {
+  crawlWebsite: vi.fn(async (_url: string, onProgress: (event: CrawlProgressEvent) => void) => {
     onProgress({ type: "progress", message: "Crawled: Test Page", pagesFound: 1 });
     return {
       siteTitle: "Test Site",
@@ -35,17 +37,17 @@ const readNdjson = async (response: Response) => {
 
 describe("POST /api/v1/llms-txt/generate", () => {
   it("returns 400 when url is missing", async () => {
-    const response = await POST(makeRequest({}) as any);
+    const response = await POST(makeRequest({}) as unknown as NextRequest);
     expect(response.status).toBe(400);
   });
 
   it("returns 400 when url is malformed", async () => {
-    const response = await POST(makeRequest({ url: "not-a-url" }) as any);
+    const response = await POST(makeRequest({ url: "not-a-url" }) as unknown as NextRequest);
     expect(response.status).toBe(400);
   });
 
   it("streams progress events followed by a done event", async () => {
-    const response = await POST(makeRequest({ url: "https://example.com" }) as any);
+    const response = await POST(makeRequest({ url: "https://example.com" }) as unknown as NextRequest);
     expect(response.status).toBe(200);
 
     const events = await readNdjson(response);
@@ -57,7 +59,7 @@ describe("POST /api/v1/llms-txt/generate", () => {
   });
 
   it("done event contains valid llms.txt output", async () => {
-    const response = await POST(makeRequest({ url: "https://example.com" }) as any);
+    const response = await POST(makeRequest({ url: "https://example.com" }) as unknown as NextRequest);
     const events = await readNdjson(response);
     const doneEvent = events.find((e) => e.type === "done");
 
@@ -66,7 +68,7 @@ describe("POST /api/v1/llms-txt/generate", () => {
   });
 
   it("response content-type is ndjson", async () => {
-    const response = await POST(makeRequest({ url: "https://example.com" }) as any);
+    const response = await POST(makeRequest({ url: "https://example.com" }) as unknown as NextRequest);
     expect(response.headers.get("content-type")).toBe("application/x-ndjson");
   });
 });

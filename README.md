@@ -20,6 +20,10 @@ cd llm-txt-generator
 # Install dependencies
 npm install
 
+# Set up environment variables
+cp .env.example .env.local
+# Add your GEMINI_API_KEY to .env.local
+
 # Start the development server
 npm run dev
 ```
